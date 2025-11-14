@@ -1,0 +1,5 @@
+{
+  "name": "AGRONA - USDA Rural Development Assistant",
+  "description": "An interactive web application replicating the USDA Rural Development website, featuring a helpful AI chatbot named AGRONA to assist users with navigation, information retrieval, and file analysis.",
+  "requestFramePermissions": []
+}
