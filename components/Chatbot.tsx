@@ -1,5 +1,6 @@
+
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Message, FileData } from '../types';
+import { Message, FileData, UserPreferences } from '../types';
 import { runChat } from '../services/geminiService';
 import { AgronaLogo, PaperclipIcon, SendIcon, XIcon } from './Icons';
 
@@ -16,7 +17,11 @@ const fileToBase64 = (file: File): Promise<string> => {
     });
 };
 
-const Chatbot: React.FC = () => {
+interface ChatbotProps {
+    isLoggedIn: boolean;
+}
+
+const Chatbot: React.FC<ChatbotProps> = ({ isLoggedIn }) => {
     const [isOpen, setIsOpen] = useState(false);
     const [messages, setMessages] = useState<Message[]>([]);
     const [input, setInput] = useState('');
@@ -27,11 +32,29 @@ const Chatbot: React.FC = () => {
 
     useEffect(() => {
         if (isOpen && messages.length === 0) {
-            setMessages([
-                { id: 'initial', role: 'model', text: "Hello! I'm AGRONA, your guide to the USDA Rural Development website. How can I help you today? You can ask me questions or upload an image for analysis." }
-            ]);
+            let welcomeText = "Hello! I'm AGRONA, your guide to the USDA Rural Development website. How can I help you today? You can ask me about crop advisory, USDA office locations, or upload an image for analysis.";
+            if (isLoggedIn) {
+                try {
+                    const prefsString = localStorage.getItem('agronaUserPrefs');
+                    if (prefsString) {
+                        const prefs: UserPreferences = JSON.parse(prefsString);
+                        let personalizedGreeting = 'Welcome back!';
+                        if (prefs.lastCrop && prefs.lastRegion) {
+                            personalizedGreeting += ` Should I show you updated info for ${prefs.lastCrop} in ${prefs.lastRegion} today?`;
+                        } else if (prefs.lastCrop) {
+                            personalizedGreeting += ` Still interested in ${prefs.lastCrop}?`;
+                        } else if (prefs.lastRegion) {
+                            personalizedGreeting += ` How are things in ${prefs.lastRegion}?`;
+                        }
+                        welcomeText = `${personalizedGreeting}\n\n${welcomeText}`;
+                    }
+                } catch(e) {
+                    console.error("Failed to parse user preferences", e);
+                }
+            }
+             setMessages([{ id: 'initial', role: 'model', text: welcomeText }]);
         }
-    }, [isOpen]);
+    }, [isOpen, isLoggedIn, messages.length]);
 
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -49,7 +72,6 @@ const Chatbot: React.FC = () => {
                 });
             } catch (error) {
                 console.error("Error converting file to base64", error);
-                // Handle error (e.g., show a notification)
             }
         }
     };
@@ -58,28 +80,30 @@ const Chatbot: React.FC = () => {
         e.preventDefault();
         if (!input.trim() && !file) return;
 
-        setIsLoading(true);
-        const userMessage: Message = {
-            id: Date.now().toString(),
-            role: 'user',
-            text: input,
-            file: file ? file : undefined,
-        };
-        setMessages(prev => [...prev, userMessage]);
-
         const currentInput = input;
         const currentFile = file;
 
+        const userMessage: Message = {
+            id: Date.now().toString(),
+            role: 'user',
+            text: currentInput,
+            file: currentFile ? currentFile : undefined,
+        };
+        
+        const newMessages = [...messages, userMessage];
+        setMessages(newMessages);
+        setIsLoading(true);
         setInput('');
         setFile(null);
         if(fileInputRef.current) fileInputRef.current.value = '';
 
         try {
-            const responseText = await runChat(currentInput, currentFile ?? undefined);
+            const { text, imageUrl } = await runChat(messages, currentInput, currentFile ?? undefined);
             const modelMessage: Message = {
                 id: (Date.now() + 1).toString(),
                 role: 'model',
-                text: responseText,
+                text: text,
+                imageUrl: imageUrl,
             };
             setMessages(prev => [...prev, modelMessage]);
         } catch (error) {
@@ -92,7 +116,7 @@ const Chatbot: React.FC = () => {
         } finally {
             setIsLoading(false);
         }
-    }, [input, file]);
+    }, [input, file, messages]);
 
     return (
         <>
@@ -119,6 +143,7 @@ const Chatbot: React.FC = () => {
                             {msg.role === 'model' && <AgronaLogo className="w-8 h-8 flex-shrink-0" />}
                             <div className={`max-w-xs md:max-w-sm rounded-lg p-3 ${msg.role === 'user' ? 'bg-blue-600 text-white rounded-br-none' : 'bg-white text-gray-800 rounded-bl-none border'}`}>
                                 {msg.file && <img src={`data:${msg.file.mimeType};base64,${msg.file.base64}`} alt={msg.file.name} className="rounded-md mb-2 max-h-40" />}
+                                {msg.imageUrl && <img src={msg.imageUrl} alt="Generated chart" className="rounded-md my-2" />}
                                 {msg.text && <p className="text-sm whitespace-pre-wrap">{msg.text}</p>}
                             </div>
                         </div>
